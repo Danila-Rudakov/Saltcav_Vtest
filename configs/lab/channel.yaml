@@ -1,0 +1,26 @@
+# Лабораторная установка: горизонтальный канал в блоке NaCl.
+# Запуск: cfg = load_lab_config("configs/lab/channel.yaml"); res = simulate_section(cfg)
+# Все размеры и режим — параметры опыта; меняйте под свою установку.
+name: lab-channel-example
+setup: channel          # channel — канал в целом блоке; window — полуканал у окна из оргстекла
+model: section          # section — сечение с конвекцией; axisym — простая модель (круг)
+natural_convection: true
+n_theta: 18             # секторов на половину сечения
+length_mm: 200          # длина канала (блока вдоль оси)
+diameter_mm: 2.5        # начальный диаметр просверленного канала
+n_cells: 80             # ячеек вдоль оси (сходимость: удвоить и сравнить)
+temperature_c: 20
+salt_density_kg_m3: 2160
+sh_mult: 1.0            # множители массоотдачи — подбираются по первым опытам
+roof_mult: 1.0
+wall_mult: 1.0
+# k_surface_m_s: 1.0e-4  # константа реакции на поверхности; без неё — транспортный контроль
+salt_conductivity_w_mk: 6.0   # теплопроводность соли (оценка, уточнить)
+max_radius_mm: 40       # от оси до ближайшей грани блока
+output_every_min: 2       # шаг записи: чем меньше, тем точнее время событий
+stages:                 # режим насоса по ступеням
+  - duration_h: 1
+    flow_ml_min: 5
+    inlet_saturation: 0.0   # дистиллят
+  - duration_h: 1
+    flow_ml_min: 20

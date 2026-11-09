@@ -1,0 +1,24 @@
+# Та же установка на глубине 1200 м: насос на поверхности подаёт воду по трубке вниз,
+# рассол поднимается на поверхность по второй трубке (сообщающиеся сосуды, без второго насоса).
+# Запуск: cfg = load_lab_config("configs/lab/deep_1200m.yaml"); res = simulate_section(cfg)
+name: lab-deep-1200m
+setup: channel
+model: section
+natural_convection: true
+length_mm: 200
+diameter_mm: 2.5
+max_radius_mm: 40
+temperature_c: 20                    # на поверхности
+depth_m: 1200                        # глубина установки от поверхности
+tube_diameter_mm: 4                  # внутренний диаметр подающей и отводящей трубок
+# geothermal_gradient_c_per_100m: 2.5  # если задать — на глубине теплее (20 + 2,5·12 = 50 °C)
+rock_density_kg_m3: 2300             # для оценки горного давления и ползучести соли
+salt_density_kg_m3: 2160
+n_cells: 80
+n_theta: 18
+output_every_min: 2
+stages:
+  - duration_h: 1
+    flow_ml_min: 5
+  - duration_h: 1
+    flow_ml_min: 20
