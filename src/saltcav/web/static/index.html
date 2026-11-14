@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SALTCAV LAB</title>
+  <link rel="stylesheet" href="style.css">
+  <!-- KaTeX для вёрстки формул -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" crossorigin="anonymous">
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js" crossorigin="anonymous"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js" crossorigin="anonymous"></script>
+</head>
+<body>
+  <div class="app-layout">
+    <!-- Шапка приложения -->
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-badge"></span>
+        <div class="brand-text">
+          <h1>SALTCAV <span class="highlight">LAB</span></h1>
+        </div>
+      </div>
+      <div class="topbar-status">
+        <span class="status-indicator ready" id="statusIndicator"></span>
+        <span class="status-text" id="statusText">ГОТОВ</span>
+      </div>
+    </header>
+
+    <!-- Основной контейнер на весь экран -->
+    <main class="main-content">
+      <!-- Левая колонка: Форма параметров -->
+      <aside class="sidebar">
+        <div class="panel-card sidebar-card">
+          <div class="panel-header">
+            <h2>Параметры опыта</h2>
+            <button type="button" class="btn-text" id="btnResetDefaults" title="Сбросить к channel.yaml">Сброс</button>
+          </div>
+
+          <form id="configForm" class="config-form">
+            <!-- Пресеты -->
+            <div class="form-group">
+              <label for="presetSelect">Шаблон опыта</label>
+              <select id="presetSelect" class="form-select">
+                <option value="channel">Канал в целом блоке (channel.yaml)</option>
+                <option value="window">Полуканал у смотрового окна (window.yaml)</option>
+              </select>
+            </div>
+
+            <!-- Геометрия -->
+            <fieldset class="form-section">
+              <legend>Геометрия канала</legend>
+              <div class="grid-2">
+                <div class="form-group">
+                  <label for="lengthMm">Длина <i>L</i>, мм</label>
+                  <input type="number" id="lengthMm" name="length_mm" step="any" min="1" max="5000" value="200" required>
+                </div>
+                <div class="form-group">
+                  <label for="diameterMm">Диаметр <i>D</i><sub>0</sub>, мм</label>
+                  <input type="number" id="diameterMm" name="diameter_mm" step="any" min="0.1" max="100" value="2.5" required>
+                </div>
+              </div>
+              <div class="form-group">
+                <label for="maxRadiusMm">Предел блока <i>R</i><sub>max</sub>, мм</label>
+                <input type="number" id="maxRadiusMm" name="max_radius_mm" step="any" min="1" max="1000" value="40">
+              </div>
+            </fieldset>
+
+            <!-- Условия и физика -->
+            <fieldset class="form-section">
+              <legend>Условия и физика</legend>
+              <div class="grid-2">
+                <div class="form-group">
+                  <label for="temperatureC">Температура <i>T</i>, °C</label>
+                  <input type="number" id="temperatureC" name="temperature_c" step="any" min="0" max="95" value="20" required>
+                </div>
+                <div class="form-group">
+                  <label for="saltDensity">Плотность &rho;, кг/м³</label>
+                  <input type="number" id="saltDensity" name="salt_density_kg_m3" step="any" min="1000" max="3000" value="2160" required>
+                </div>
+              </div>
+              <div class="grid-2">
+                <div class="form-group">
+                  <label for="roofMult">Множитель потолка</label>
+                  <input type="number" id="roofMult" name="roof_mult" step="any" min="0" max="10" value="1.0" required>
+                </div>
+                <div class="form-group">
+                  <label for="wallMult">Множитель стенок</label>
+                  <input type="number" id="wallMult" name="wall_mult" step="any" min="0" max="10" value="1.0" required>
+                </div>
+              </div>
+              <div class="form-checkbox">
+                <input type="checkbox" id="naturalConvection" name="natural_convection" checked>
+                <label for="naturalConvection">Свободная конвекция и расслоение</label>
+              </div>
+            </fieldset>
+
+            <!-- Ступени режима насоса -->
+            <fieldset class="form-section stages-section">
+              <div class="section-title-row">
+                <legend>Режим насоса (Ступени)</legend>
+                <button type="button" class="btn-secondary btn-sm" id="btnAddStage">+ Ступень</button>
+              </div>
+              <div class="stages-table-container">
+                <table class="stages-table" id="stagesTable">
+                  <thead>
+                    <tr>
+                      <th>Длит., ч</th>
+                      <th>Расход, мл/мин</th>
+                      <th><i>C</i><sub>вх</sub> (доля <i>C</i><sub>s</sub>)</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody id="stagesTableBody">
+                    <!-- Заполняется динамически -->
+                  </tbody>
+                </table>
+              </div>
+            </fieldset>
+
+            <!-- Кнопка запуска -->
+            <div class="form-actions">
+              <button type="submit" class="btn-primary" id="btnRunSimulation">
+                <span class="btn-icon">▶</span>
+                <span class="btn-text-main">Рассчитать каверну</span>
+              </button>
+            </div>
+            <div id="formErrorMessage" class="error-banner hidden"></div>
+          </form>
+        </div>
+      </aside>
+
+      <!-- Правая колонка: Плеер, Canvas визуализация и метрики -->
+      <section class="viewer-area">
+        <!-- Панель управления анимацией -->
+        <div class="panel-card player-card">
+          <div class="player-controls-row">
+            <div class="playback-buttons">
+              <button type="button" class="btn-player" id="btnStepPrev" title="Шаг назад (←)">◀</button>
+              <button type="button" class="btn-player btn-play" id="btnPlayPause" title="Пуск / Пауза (Пробел)">▶</button>
+              <button type="button" class="btn-player" id="btnStepNext" title="Шаг вперёд (→)">▶</button>
+              <button type="button" class="btn-player btn-loop" id="btnLoop" title="Зациклить">LOOP</button>
+            </div>
+
+            <!-- Селектор скорости -->
+            <div class="speed-selector">
+              <span class="control-label">Скорость:</span>
+              <button type="button" class="btn-speed" data-speed="0.5">0.5x</button>
+              <button type="button" class="btn-speed active" data-speed="1">1x</button>
+              <button type="button" class="btn-speed" data-speed="2">2x</button>
+              <button type="button" class="btn-speed" data-speed="5">5x</button>
+            </div>
+
+            <!-- Время опыта -->
+            <div class="time-readout">
+              <span class="time-label">Время:</span>
+              <span class="time-value" id="currentTimeDisplay">00ч 00м</span>
+              <span class="time-total" id="totalTimeDisplay">/ 02ч 00м</span>
+            </div>
+          </div>
+
+          <!-- Слайдер времени -->
+          <div class="timeline-row">
+            <input type="range" id="timeSlider" class="timeline-slider" min="0" max="0" value="0" step="1">
+          </div>
+        </div>
+
+        <!-- Двойной холст визуализации на всю высоту -->
+        <div class="viewports-grid">
+          <!-- Холст 1: Поперечное сечение -->
+          <div class="panel-card canvas-card">
+            <div class="canvas-header">
+              <div>
+                <h3>Поперечное сечение <i>r</i>(&theta;)</h3>
+              </div>
+              <div class="canvas-legend">
+                <span class="legend-item"><span class="legend-color legend-current"></span> Каверна</span>
+                <span class="legend-item"><span class="legend-color legend-initial"></span> Бурение <i>D</i><sub>0</sub></span>
+              </div>
+            </div>
+            <div class="canvas-wrapper">
+              <canvas id="crossSectionCanvas"></canvas>
+            </div>
+            <div class="cross-section-stats">
+              <div class="stat-pill">Срез <i>x</i>: <strong id="valXCoord">100.0 мм</strong></div>
+              <div class="stat-pill">Радиус свода: <strong id="valRoofR">1.25 мм</strong></div>
+              <div class="stat-pill">Радиус дна: <strong id="valFloorR">1.25 мм</strong></div>
+              <div class="stat-pill">Ширина: <strong id="valWidth">2.50 мм</strong></div>
+            </div>
+          </div>
+
+          <!-- Холст 2: Продольный профиль -->
+          <div class="panel-card canvas-card">
+            <div class="canvas-header">
+              <div>
+                <h3>Продольный профиль</h3>
+              </div>
+              <div class="canvas-legend">
+                <span class="legend-item"><span class="legend-color legend-marker"></span> Визир <i>x</i></span>
+              </div>
+            </div>
+            <div class="canvas-wrapper">
+              <canvas id="longitudinalCanvas"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <!-- Метрики и мини-графики -->
+        <div class="panel-card metrics-card">
+          <div class="metrics-grid">
+            <div class="metric-box">
+              <span class="metric-label">Объём каверны <i>V</i></span>
+              <span class="metric-number" id="metricVolume">0.00</span>
+              <span class="metric-unit">см³</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label">Концентрация <i>C</i><sub>out</sub></span>
+              <span class="metric-number" id="metricOutlet">0.0</span>
+              <span class="metric-unit">г/л (<span id="metricSatPct">0</span>%)</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label">Вынесено соли</span>
+              <span class="metric-number" id="metricProduced">0.00</span>
+              <span class="metric-unit">г</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label">Расход насоса <i>Q</i></span>
+              <span class="metric-number" id="metricFlow">0.0</span>
+              <span class="metric-unit">мл/мин</span>
+            </div>
+          </div>
+
+          <!-- График динамики во времени -->
+          <div class="telemetry-chart-wrapper">
+            <div class="telemetry-chart-header">
+              <span class="control-label">Динамика объёма <i>V</i>(<i>t</i>) во времени:</span>
+            </div>
+            <div class="telemetry-canvas-wrapper">
+              <canvas id="telemetryCanvas" class="telemetry-canvas"></canvas>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
