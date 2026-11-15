@@ -74,6 +74,9 @@ def test_post_simulate_success(live_server: str) -> None:
         res = json.loads(resp.read().decode("utf-8"))
         assert res["status"] == "ok"
         d = res["data"]
+        assert d["config"]["name"] == payload["name"]
+        assert d["config"]["stages"] == payload["stages"]
+        assert d["config"]["depth_m"] == 0
         assert d["n_steps"] > 0
         assert len(d["times"]) == d["n_steps"]
         assert len(d["x_mm"]) == 11  # n_cells + 1
@@ -104,10 +107,9 @@ def test_post_simulate_invalid_config(live_server: str) -> None:
 
 def test_static_files_served(live_server: str) -> None:
     """Статические файлы index.html, style.css, app.js успешно отдаются."""
-    for path in ["/", "/index.html", "/style.css", "/app.js"]:
+    for path in ["/", "/index.html", "/style.css", "/app.js", "/report.js"]:
         url = f"{live_server}{path}"
         with urllib.request.urlopen(url) as resp:
             assert resp.status == HTTPStatus.OK
             content = resp.read()
             assert len(content) > 0
-

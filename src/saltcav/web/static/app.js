@@ -30,6 +30,7 @@ const DOM = {
   stagesTableBody: document.getElementById("stagesTableBody"),
   btnAddStage: document.getElementById("btnAddStage"),
   btnRun: document.getElementById("btnRunSimulation"),
+  btnReport: document.getElementById("btnDownloadReport"),
   errorBanner: document.getElementById("formErrorMessage"),
 
   // Плеер
@@ -90,6 +91,16 @@ function renderFormulas() {
 
 function bindEvents() {
   DOM.form.addEventListener("submit", onFormSubmit);
+  DOM.btnReport.addEventListener("click", () => {
+    if (!state.simData) return;
+    const content = buildLabReport(state.simData, state.view.xIndex);
+    const url = URL.createObjectURL(new Blob([content], { type: "text/html;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "saltcav-lab-report.html";
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  });
   DOM.btnReset.addEventListener("click", () => loadDefaults());
   DOM.btnAddStage.addEventListener("click", () => addStageRow(1.0, 10.0, 0.0));
   DOM.presetSelect.addEventListener("change", onPresetChange);
@@ -305,6 +316,7 @@ async function runSimulation() {
     }
 
     state.simData = json.data;
+    DOM.btnReport.disabled = false;
     onSimulationSuccess();
   } catch (err) {
     console.error("Simulation error:", err);

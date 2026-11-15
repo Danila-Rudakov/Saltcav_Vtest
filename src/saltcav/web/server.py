@@ -187,6 +187,7 @@ class SaltcavRequestHandler(SimpleHTTPRequestHandler):
         response_data = {
             "status": "ok",
             "data": {
+                "config": cfg.model_dump(),
                 "n_steps": len(times_s),
                 "times": times_s,
                 "formatted_times": formatted_times,
@@ -230,4 +231,3 @@ def launch_server(host: str = "127.0.0.1", port: int = 8080) -> None:
 if __name__ == "__main__":
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8080
     launch_server(port=port)
-
