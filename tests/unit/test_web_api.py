@@ -121,6 +121,36 @@ def test_post_simulate_full_contour_with_material(live_server: str) -> None:
     assert d["config"]["material"]["seed"] == 1
 
 
+def test_post_simulate_with_tube_pockets(live_server: str) -> None:
+    """Заход трубок: ось x уходит в отрицательные значения, расчётная область расширена."""
+    payload = {
+        "name": "test-web-tubes",
+        "setup": "full",
+        "model": "section",
+        "length_mm": 40.0,
+        "diameter_mm": 4.0,
+        "max_radius_mm": 20.0,
+        "n_cells": 16,
+        "n_theta": 12,
+        "output_every_min": 15.0,
+        "tube_insert_mm": 5.0,
+        "tube_gap_mm": 0.1,
+        "pocket_exchange_mult": 10.0,
+        "stages": [{"duration_h": 0.25, "flow_ml_min": 1.0, "inlet_saturation": 0.0}],
+    }
+    req = urllib.request.Request(
+        f"{live_server}/api/simulate",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(req) as resp:
+        d = json.loads(resp.read().decode("utf-8"))["data"]
+    assert d["n_pocket"] == 2
+    assert d["x_mm"][0] == pytest.approx(-5.0)
+    assert d["x_mm"][-1] == pytest.approx(45.0)
+    assert len(d["radius_mm"][-1]) == len(d["x_mm"])
+
+
 def test_post_simulate_material_requires_full(live_server: str) -> None:
     """material при setup: channel — ошибка валидации (HTTP 400)."""
     payload = {

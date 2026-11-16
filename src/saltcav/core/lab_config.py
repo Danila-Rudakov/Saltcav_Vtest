@@ -95,6 +95,23 @@ class LabConfig(_Strict):
     natural_convection: Annotated[
         bool, Field(description="Учитывать свободную конвекцию и расслоение рассола")
     ] = True
+    tube_insert_mm: Annotated[
+        float,
+        Field(ge=0, description="Заход подающей и отводящей трубок в отверстие, мм. Каверна "
+                                "растворяется от x = −заход до x = L + заход, а вода входит в "
+                                "x = 0 и выходит в x = L (трубка непроницаема). 0 — трубок нет"),
+    ] = 0.0  # fmt: skip
+    tube_gap_mm: Annotated[
+        float,
+        Field(gt=0, description="Радиальный зазор между трубкой и стенкой отверстия, мм "
+                                "(наружный радиус трубки = D₀/2 − зазор)"),
+    ] = 0.1  # fmt: skip
+    pocket_exchange_mult: Annotated[
+        float,
+        Field(ge=0, description="Множитель обмена рассолом между карманом у трубки и "
+                                "рабочим участком (1 — молекулярная диффузия через зазор; "
+                                "калибруется по опытам)"),
+    ] = 1.0  # fmt: skip
     stefan_condition: Annotated[
         bool,
         Field(description="Условие Стефана на границе соли: скорость отступания стенки "
@@ -145,6 +162,10 @@ class LabConfig(_Strict):
     def _check_model(self) -> LabConfig:
         if self.model == "axisym" and (self.setup != "channel" or self.natural_convection):
             raise ValueError("model: axisym — только setup: channel и natural_convection: false")
+        if self.tube_insert_mm > 0 and self.model != "section":
+            raise ValueError("tube_insert_mm — только для model: section")
+        if self.tube_gap_mm >= 0.5 * self.diameter_mm:
+            raise ValueError("tube_gap_mm должен быть меньше радиуса канала")
         if self.material is not None and self.setup != "full":
             raise ValueError("material — только для setup: full (поле задано на всём контуре 0…2π)")
         if self.setup == "full" and self.n_theta % 4:
@@ -154,6 +175,13 @@ class LabConfig(_Strict):
         if self.temperature_at_depth > 100:
             raise ValueError("температура на глубине выше 100 °C — вне таблиц свойств рассола")
         return self
+
+    @property
+    def n_pocket(self) -> int:
+        """Ячеек кармана у каждой трубки (заход трубки в целых ячейках по x, 0 — без трубок)."""
+        if self.tube_insert_mm <= 0:
+            return 0
+        return max(1, round(self.tube_insert_mm / (self.length_mm / self.n_cells)))
 
     @property
     def temperature_at_depth(self) -> float:

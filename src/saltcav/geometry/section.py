@@ -32,7 +32,19 @@ class Geometry:
     height: FloatArray  # (nx,) высота сечения (потолок + дно), м
 
 
-def geometry(r: FloatArray, dx: float, theta: FloatArray, window: bool) -> Geometry:
+def geometry(
+    r: FloatArray,
+    dx: float,
+    theta: FloatArray,
+    window: bool,
+    tube_r: FloatArray | None = None,
+) -> Geometry:
+    """Геометрия по форме стенки r (nx+1, nθ+1).
+
+    ``tube_r`` (nx,) — наружный радиус трубки в ячейках по x (0 — трубки нет): трубка в центре
+    сечения вытесняет объём (клин теряет ½·r_т²·dθ·dx), а её поверхность добавляется к
+    смоченному периметру (гидравлический диаметр кольцевого зазора ≈ 2·ширина зазора).
+    """
     rm = 0.5 * (r[:-1] + r[1:])  # радиус в середине ячейки по x, (nx, nθ+1)
     dth = float(theta[1] - theta[0])
     vol = dx * dth / 2.0 * 0.25 * (r[:-1, :-1] ** 2 + r[1:, :-1] ** 2 + r[:-1, 1:] ** 2
@@ -49,6 +61,9 @@ def geometry(r: FloatArray, dx: float, theta: FloatArray, window: bool) -> Geome
     floor_idx = (rm.shape[1] - 1) // 2 if full else -1
     height = rm[:, 0] + rm[:, floor_idx]
     perim = seg.sum(axis=1) + (height if window else 0.0)
+    if tube_r is not None:
+        vol = vol - (0.5 * dx * dth * tube_r**2)[:, None]
+        perim = perim + float(theta[-1]) * tube_r
     return Geometry(vol, nz, zc, vol.sum(axis=1) / dx, perim, height)
 
 

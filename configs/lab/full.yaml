@@ -12,6 +12,9 @@ max_radius_mm: 40
 temperature_c: 20
 salt_density_kg_m3: 2160
 roof_mult: 0.45
+tube_insert_mm: 5       # трубки заходят в отверстие: растворение от x = −5 до x = L + 5 мм,
+tube_gap_mm: 0.1        # вода входит в x = 0 и выходит в x = L (трубка непроницаема)
+pocket_exchange_mult: 100  # обмен в кармане через зазор, ×диффузии: подбирается по опытам
 stefan_condition: true  # V = j/(ρ_s − C_s); false — V = j/ρ_s
 material:               # убрать блок — однородный материал
   seed: 20261112

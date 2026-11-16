@@ -22,6 +22,7 @@ function buildLabReport(data, xIndex) {
     ["Порог расслоения Gr/Re²", cfg.ri_crit], ["Константа реакции", cfg.k_surface_m_s, "м/с"],
     ["Теплопроводность соли", cfg.salt_conductivity_w_mk, "Вт/(м·К)"], ["Ячеек по длине", cfg.n_cells],
     [cfg.setup === "full" ? "Секторов на весь контур" : "Секторов на половину сечения", cfg.n_theta],
+    ["Трубки в отверстии", cfg.tube_insert_mm > 0 ? `заход ${cfg.tube_insert_mm} мм, зазор ${cfg.tube_gap_mm} мм, обмен ×${cfg.pocket_exchange_mult} (растворение от x = −${cfg.tube_insert_mm} до x = L + ${cfg.tube_insert_mm} мм)` : "нет"],
     ["Условие Стефана", cfg.stefan_condition === false ? "выключено (V = j/ρs)" : "включено (V = j/(ρs − Cs))"],
     ["Материал", cfg.material ? `зёрна (зерно ${cfg.material.seed}, контраст ${cfg.material.grain_contrast}, границы ×${cfg.material.boundary_factor})` + (cfg.material.sheet_offset_mm == null ? "" : `, пластины со смещением ${cfg.material.sheet_offset_mm} мм`) : "однородный"], ["Шаг записи", cfg.output_every_min, "мин"], ["CFL", cfg.cfl]
   ];

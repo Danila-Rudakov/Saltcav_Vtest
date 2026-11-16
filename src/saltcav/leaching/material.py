@@ -143,7 +143,7 @@ class InclinedSheets:
         th = theta[None, :]
         q = rr * np.sin(th) + self.offset_mm * xx / self.length_mm  # координата поперёк пластин
         dth = 2.0 * np.pi / (r_m.shape[1] - 1)
-        dx = self.length_mm / (r_m.shape[0] - 1)
+        dx = float(x_mm[1] - x_mm[0]) if x_mm.size > 1 else self.length_mm
         w_ang = np.abs(rr * np.cos(th)) * dth  # проекция шага по θ на ось q
         w_ax = abs(self.offset_mm / self.length_mm) * dx  # проекция шага по x
         half = 0.5 * np.maximum(np.sqrt(w_ang * w_ang + w_ax * w_ax), 0.0005)
@@ -157,12 +157,17 @@ def build_multiplier(cfg: LabConfig) -> Callable[[FloatArray], FloatArray] | Non
     mat = cfg.material
     if mat is None:
         return None
-    x_mm = np.linspace(0.0, cfg.length_mm, cfg.n_cells + 1)
+    # узлы по x в мм: рабочая зона 0…L и карманы у трубок (x < 0 и x > L) — материал сплошной
+    dx_mm = cfg.length_mm / cfg.n_cells
+    x_lo = -cfg.n_pocket * dx_mm
+    x_mm = x_lo + dx_mm * np.arange(cfg.n_cells + 2 * cfg.n_pocket + 1)
     theta = np.linspace(0.0, 2.0 * np.pi, cfg.n_theta + 1)
 
-    base = grain_field(cfg.length_mm, cfg.diameter_mm, mat.seed, mat.grain_contrast,
+    # поле зёрен — на базовой сетке; без трубок это 0…L (как раньше), с трубками — вся длина
+    span_mm = float(x_mm[-1] - x_mm[0])
+    base = grain_field(span_mm, cfg.diameter_mm, mat.seed, mat.grain_contrast,
                        mat.boundary_factor)  # fmt: skip
-    x_base = np.linspace(0.0, cfg.length_mm, BASE_NX + 1)
+    x_base = np.linspace(float(x_mm[0]), float(x_mm[-1]), BASE_NX + 1)
     th_base = np.linspace(0.0, 2.0 * np.pi, BASE_NTH + 1)
     xg, tg = np.meshgrid(x_mm, theta, indexing="ij")
     interp = RegularGridInterpolator((x_base, th_base), base, bounds_error=False, fill_value=None)

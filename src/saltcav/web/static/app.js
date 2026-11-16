@@ -222,6 +222,14 @@ function populateForm(cfg) {
   document.getElementById("roofMult").value = cfg.roof_mult ?? 1.0;
   document.getElementById("wallMult").value = cfg.wall_mult ?? 1.0;
   document.getElementById("naturalConvection").checked = cfg.natural_convection !== false;
+  document.getElementById("nCells").value = cfg.n_cells ?? 80;
+  document.getElementById("nTheta").value = cfg.n_theta ?? 18;
+  document.getElementById("shMult").value = cfg.sh_mult ?? 1.0;
+  document.getElementById("outputEveryMin").value = cfg.output_every_min ?? 2.0;
+  document.getElementById("stefanCondition").checked = cfg.stefan_condition !== false;
+  document.getElementById("tubeInsertMm").value = cfg.tube_insert_mm ?? 0;
+  document.getElementById("tubeGapMm").value = cfg.tube_gap_mm ?? 0.1;
+  document.getElementById("pocketExchange").value = cfg.pocket_exchange_mult ?? 1.0;
 
   DOM.stagesTableBody.innerHTML = "";
   const stages = cfg.stages || [
@@ -290,6 +298,9 @@ function collectFormData() {
     n_theta: parseInt(document.getElementById("nTheta").value, 10),
     output_every_min: parseFloat(document.getElementById("outputEveryMin").value),
     stefan_condition: document.getElementById("stefanCondition").checked,
+    tube_insert_mm: parseFloat(document.getElementById("tubeInsertMm").value),
+    tube_gap_mm: parseFloat(document.getElementById("tubeGapMm").value),
+    pocket_exchange_mult: parseFloat(document.getElementById("pocketExchange").value),
     material: collectMaterial(setupType),
     stages: stages,
   };
@@ -687,7 +698,9 @@ function renderLongitudinal(canvas, stepIdx, currentXIdx) {
   const usableW = W - padLeft - padRight;
   const usableH = H - 2 * padY;
 
-  const totalLength = d.x_mm[nx - 1];
+  // ось x: от конца левого кармана (x < 0, если трубки заходят в отверстие) до конца правого
+  const xMin = d.x_mm[0];
+  const totalLength = d.x_mm[nx - 1] - xMin;
   const maxR = d.max_radius_mm || Math.max(...d.radius_mm[d.n_steps - 1].flat()) * 1.2;
 
   const scaleX = usableW / totalLength;
@@ -709,8 +722,8 @@ function renderLongitudinal(canvas, stepIdx, currentXIdx) {
   ctx.fillStyle = "#8494A0";
   ctx.font = "9px monospace";
   ctx.textAlign = "center";
-  for (let xm = 0; xm <= totalLength; xm += xStep) {
-    const px = padLeft + xm * scaleX;
+  for (let xm = Math.ceil(xMin / xStep) * xStep; xm <= xMin + totalLength; xm += xStep) {
+    const px = padLeft + (xm - xMin) * scaleX;
     ctx.beginPath();
     ctx.moveTo(px, midY - 3);
     ctx.lineTo(px, midY + 3);
@@ -736,7 +749,7 @@ function renderLongitudinal(canvas, stepIdx, currentXIdx) {
   const floorPts = [];
 
   for (let i = 0; i < nx; i++) {
-    const px = padLeft + d.x_mm[i] * scaleX;
+    const px = padLeft + (d.x_mm[i] - xMin) * scaleX;
     const rRoof = stepData[i][0]; // theta = 0
     const rFloor = stepData[i][floorIndex(d.theta_rad)]; // theta = pi
 
@@ -767,8 +780,32 @@ function renderLongitudinal(canvas, stepIdx, currentXIdx) {
   for (let i = 1; i < floorPts.length; i++) ctx.lineTo(floorPts[i].x, floorPts[i].y);
   ctx.stroke();
 
+  // Трубки в карманах: непроницаемые, вода входит в x = 0 и выходит в x = L
+  if (d.n_pocket > 0) {
+    const rTube = initialR - (d.config.tube_gap_mm || 0);
+    const xIn = padLeft + (0 - xMin) * scaleX;
+    const xOut = padLeft + (d.config.length_mm - xMin) * scaleX;
+    ctx.fillStyle = "rgba(120,130,140,0.35)";
+    ctx.fillRect(padLeft, midY - rTube * scaleZ, xIn - padLeft, 2 * rTube * scaleZ);
+    ctx.fillRect(xOut, midY - rTube * scaleZ, padLeft + usableW - xOut, 2 * rTube * scaleZ);
+    ctx.strokeStyle = "#8494A0";
+    ctx.setLineDash([4, 3]);
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(xIn, padY);
+    ctx.lineTo(xIn, H - padY);
+    ctx.moveTo(xOut, padY);
+    ctx.lineTo(xOut, H - padY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = "#8494A0";
+    ctx.textAlign = "center";
+    ctx.fillText("вход", xIn, padY - 6);
+    ctx.fillText("выход", xOut, padY - 6);
+  }
+
   // 4. Вертикальный маркер (визир) выбранного сечения X
-  const markerX = padLeft + d.x_mm[currentXIdx] * scaleX;
+  const markerX = padLeft + (d.x_mm[currentXIdx] - xMin) * scaleX;
   ctx.strokeStyle = "#2B608A";
   ctx.lineWidth = 1.5;
   ctx.beginPath();
