@@ -104,6 +104,9 @@ function bindEvents() {
   DOM.btnReset.addEventListener("click", () => loadDefaults());
   DOM.btnAddStage.addEventListener("click", () => addStageRow(1.0, 10.0, 0.0));
   DOM.presetSelect.addEventListener("change", onPresetChange);
+  DOM.presetSelect.addEventListener("change", syncSetupFields);
+  document.getElementById("materialEnabled").addEventListener("change", syncSetupFields);
+  syncSetupFields();
 
   // Плеер
   DOM.btnPlayPause.addEventListener("click", togglePlay);
@@ -282,12 +285,46 @@ function collectFormData() {
     salt_density_kg_m3: parseFloat(document.getElementById("saltDensity").value),
     roof_mult: parseFloat(document.getElementById("roofMult").value),
     wall_mult: parseFloat(document.getElementById("wallMult").value),
-    sh_mult: 1.0,
-    n_cells: 80,
-    n_theta: 18,
-    output_every_min: 2.0,
+    sh_mult: parseFloat(document.getElementById("shMult").value),
+    n_cells: parseInt(document.getElementById("nCells").value, 10),
+    n_theta: parseInt(document.getElementById("nTheta").value, 10),
+    output_every_min: parseFloat(document.getElementById("outputEveryMin").value),
+    stefan_condition: document.getElementById("stefanCondition").checked,
+    material: collectMaterial(setupType),
     stages: stages,
   };
+}
+
+// Полный контур 0…2π (setup: full): без зеркала, дно — узел θ = π (середина), а не последний.
+function isClosedContour(theta) {
+  return theta[theta.length - 1] > Math.PI * 1.5;
+}
+function floorIndex(theta) {
+  return isClosedContour(theta) ? (theta.length - 1) / 2 : theta.length - 1;
+}
+
+// Материал задаётся только для полного контура; иначе null (однородный).
+function collectMaterial(setupType) {
+  if (setupType !== "full" || !document.getElementById("materialEnabled").checked) return null;
+  const offset = document.getElementById("sheetOffsetMm").value;
+  return {
+    seed: parseInt(document.getElementById("grainSeed").value, 10),
+    grain_contrast: parseFloat(document.getElementById("grainContrast").value),
+    boundary_factor: parseFloat(document.getElementById("boundaryFactor").value),
+    sheet_offset_mm: offset === "" ? null : parseFloat(offset),
+  };
+}
+
+// Поля, зависящие от режима: материал и кратность n_theta — только для full.
+function syncSetupFields() {
+  const full = DOM.presetSelect.value === "full";
+  document.getElementById("materialSection").hidden = !full;
+  document.getElementById("materialFields").hidden =
+    !(full && document.getElementById("materialEnabled").checked);
+  document.getElementById("nThetaHint").textContent = full ? "(на весь контур, кратно 4)" : "(на половину)";
+  const nt = document.getElementById("nTheta");
+  nt.step = full ? 4 : 1;
+  if (full && nt.value % 4 !== 0) nt.value = Math.max(4, Math.round(nt.value / 4) * 4);
 }
 
 async function onFormSubmit(e) {
@@ -454,12 +491,18 @@ function updateTimeAndMetrics(stepIdx) {
   // Статистика конкретного сечения
   const rSlice = d.radius_mm[stepIdx][state.view.xIndex];
   const rTop = rSlice[0]; // theta = 0
-  const rBot = rSlice[rSlice.length - 1]; // theta = pi
+  const rBot = rSlice[floorIndex(d.theta_rad)]; // theta = pi
   // Максимальная ширина (вдоль горизонтали)
   let maxW = 0;
-  for (let j = 0; j < d.theta_rad.length; j++) {
-    const w = 2.0 * rSlice[j] * Math.sin(d.theta_rad[j]);
-    if (w > maxW) maxW = w;
+  if (isClosedContour(d.theta_rad)) {
+    // полный контур: ширина = размах по горизонтали (с учётом несимметрии)
+    const ys = Array.from(rSlice, (rv, j) => rv * Math.sin(d.theta_rad[j]));
+    maxW = Math.max(...ys) - Math.min(...ys);
+  } else {
+    for (let j = 0; j < d.theta_rad.length; j++) {
+      const w = 2.0 * rSlice[j] * Math.sin(d.theta_rad[j]);
+      if (w > maxW) maxW = w;
+    }
   }
   DOM.valRoofR.textContent = `${rTop.toFixed(2)} мм`;
   DOM.valFloorR.textContent = `${rBot.toFixed(2)} мм`;
@@ -580,6 +623,7 @@ function renderCrossSection(canvas, stepIdx, xIdx) {
   // 3. Текущая граница каверны r(theta)
   const ptsRight = [];
   const ptsLeft = [];
+  const closed = isClosedContour(theta);
 
   for (let j = 0; j < theta.length; j++) {
     const th = theta[j];
@@ -588,7 +632,7 @@ function renderCrossSection(canvas, stepIdx, xIdx) {
     const py = -r * Math.cos(th); // -cos дает вверх для th = 0
 
     ptsRight.push({ x: cx + px, y: cy + py });
-    if (th > 0 && th < Math.PI) {
+    if (!closed && th > 0 && th < Math.PI) {
       ptsLeft.unshift({ x: cx - px, y: cy + py }); // зеркальная левая половина
     }
   }
@@ -614,7 +658,8 @@ function renderCrossSection(canvas, stepIdx, xIdx) {
   ctx.fillStyle = "#2B608A";
   ctx.beginPath();
   ctx.arc(ptsRight[0].x, ptsRight[0].y, 3.5, 0, 2 * Math.PI);
-  ctx.arc(ptsRight[ptsRight.length - 1].x, ptsRight[ptsRight.length - 1].y, 3.5, 0, 2 * Math.PI);
+  const fl = ptsRight[closed ? floorIndex(theta) : ptsRight.length - 1];
+  ctx.arc(fl.x, fl.y, 3.5, 0, 2 * Math.PI);
   ctx.fill();
 
   ctx.restore();
@@ -693,7 +738,7 @@ function renderLongitudinal(canvas, stepIdx, currentXIdx) {
   for (let i = 0; i < nx; i++) {
     const px = padLeft + d.x_mm[i] * scaleX;
     const rRoof = stepData[i][0]; // theta = 0
-    const rFloor = stepData[i][stepData[i].length - 1]; // theta = pi
+    const rFloor = stepData[i][floorIndex(d.theta_rad)]; // theta = pi
 
     roofPts.push({ x: px, y: midY - rRoof * scaleZ });
     floorPts.push({ x: px, y: midY + rFloor * scaleZ });

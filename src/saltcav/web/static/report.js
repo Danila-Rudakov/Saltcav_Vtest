@@ -11,7 +11,7 @@ function buildLabReport(data, xIndex) {
   const row = (label, value, unit = "") => `<tr><th>${escape(label)}</th><td>${escape(value)} ${escape(unit)}</td></tr>`;
   const table = rows => `<table>${rows.join("")}</table>`;
   const configRows = [
-    ["Название", cfg.name], ["Установка", cfg.setup === "window" ? "Полуканал у окна" : "Канал в блоке"],
+    ["Название", cfg.name], ["Установка", ({ window: "Полуканал у окна", full: "Полный контур 0–360°" })[cfg.setup] || "Канал в блоке"],
     ["Модель", cfg.model], ["Длина канала", cfg.length_mm, "мм"],
     ["Начальный диаметр", cfg.diameter_mm, "мм"], ["Предел радиуса блока", cfg.max_radius_mm, "мм"],
     ["Температура на поверхности", cfg.temperature_c, "°C"], ["Температура на глубине", cfg.temperature_c + (cfg.geothermal_gradient_c_per_100m || 0) * cfg.depth_m / 100, "°C"],
@@ -21,7 +21,9 @@ function buildLabReport(data, xIndex) {
     ["Множитель массоотдачи", cfg.sh_mult], ["Множитель потолка", cfg.roof_mult], ["Множитель стенок", cfg.wall_mult],
     ["Порог расслоения Gr/Re²", cfg.ri_crit], ["Константа реакции", cfg.k_surface_m_s, "м/с"],
     ["Теплопроводность соли", cfg.salt_conductivity_w_mk, "Вт/(м·К)"], ["Ячеек по длине", cfg.n_cells],
-    ["Секторов на половину сечения", cfg.n_theta], ["Шаг записи", cfg.output_every_min, "мин"], ["CFL", cfg.cfl]
+    [cfg.setup === "full" ? "Секторов на весь контур" : "Секторов на половину сечения", cfg.n_theta],
+    ["Условие Стефана", cfg.stefan_condition === false ? "выключено (V = j/ρs)" : "включено (V = j/(ρs − Cs))"],
+    ["Материал", cfg.material ? `зёрна (зерно ${cfg.material.seed}, контраст ${cfg.material.grain_contrast}, границы ×${cfg.material.boundary_factor})` + (cfg.material.sheet_offset_mm == null ? "" : `, пластины со смещением ${cfg.material.sheet_offset_mm} мм`) : "однородный"], ["Шаг записи", cfg.output_every_min, "мин"], ["CFL", cfg.cfl]
   ];
   const resultRows = [
     ["Расчётное время", number(data.times[last] / 3600), "ч"],
@@ -44,12 +46,14 @@ function buildLabReport(data, xIndex) {
   const radii = data.radius_mm[last][x];
   const theta = data.theta_rad;
   const coords = theta.map((t, i) => [radii[i] * Math.sin(t), -radii[i] * Math.cos(t)]);
+  const closed = theta[theta.length - 1] > Math.PI * 1.5; // полный контур 0…2π: дно — узел θ = π
+  const floorIdx = closed ? (theta.length - 1) / 2 : theta.length - 1;
   const outline = data.halves === 2 ? coords.concat(coords.slice(1, -1).reverse().map(([a, b]) => [-a, b])) : coords;
   const maxRadius = Math.max(...radii, data.initial_diameter_mm / 2) * 1.15 || 1;
   const points = outline.map(([a, b]) => `${(150 + a / maxRadius * 125).toFixed(2)},${(150 + b / maxRadius * 125).toFixed(2)}`).join(" ");
-  const geometry = `<figure><figcaption>Итоговое сечение при x = ${escape(number(data.x_mm[x]))} мм (${data.halves === 2 ? "полный канал" : "полуканал у окна"})</figcaption><svg viewBox="0 0 300 300" role="img" aria-label="Поперечное сечение"><line x1="150" y1="15" x2="150" y2="285" stroke="#ccd"/><line x1="15" y1="150" x2="285" y2="150" stroke="#ccd"/><polygon points="${points}" fill="#d6e3ed" stroke="#2b608a" stroke-width="2"/><text x="150" y="13" text-anchor="middle">Свод; масштаб ±${escape(number(maxRadius))} мм</text><text x="150" y="298" text-anchor="middle">Дно</text></svg></figure>`;
+  const geometry = `<figure><figcaption>Итоговое сечение при x = ${escape(number(data.x_mm[x]))} мм (${closed ? "полный контур 0–360°" : data.halves === 2 ? "полный канал" : "полуканал у окна"})</figcaption><svg viewBox="0 0 300 300" role="img" aria-label="Поперечное сечение"><line x1="150" y1="15" x2="150" y2="285" stroke="#ccd"/><line x1="15" y1="150" x2="285" y2="150" stroke="#ccd"/><polygon points="${points}" fill="#d6e3ed" stroke="#2b608a" stroke-width="2"/><text x="150" y="13" text-anchor="middle">Свод; масштаб ±${escape(number(maxRadius))} мм</text><text x="150" y="298" text-anchor="middle">Дно</text></svg></figure>`;
   const roof = data.radius_mm[last].map(slice => slice[0]);
-  const floor = data.radius_mm[last].map(slice => -slice[slice.length - 1]);
+  const floor = data.radius_mm[last].map(slice => -slice[floorIdx]);
   const profile = chart("Продольный профиль: радиус свода", data.x_mm, roof, "x, мм", "радиус, мм") + chart("Продольный профиль: отметка дна", data.x_mm, floor, "x, мм", "отметка, мм");
   const stages = cfg.stages.map((s, i) => `<tr><td>${i+1}</td><td>${escape(s.duration_h)}</td><td>${escape(s.flow_ml_min)}</td><td>${escape(s.inlet_saturation)}</td></tr>`).join("");
   const configJson = escape(JSON.stringify(cfg, null, 2));

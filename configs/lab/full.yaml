@@ -1,0 +1,30 @@
+# Полный контур 0…360° с неоднородным материалом (зёрна и наклонные пластины).
+# Запуск: cfg = load_lab_config("configs/lab/full.yaml"); res = simulate_section(cfg)
+name: lab-full-example
+setup: full             # весь контур без допущения о симметрии
+model: section
+natural_convection: true
+n_theta: 144            # секторов на весь контур 0…360° (кратно 4)
+n_cells: 48
+length_mm: 40
+diameter_mm: 4
+max_radius_mm: 40
+temperature_c: 20
+salt_density_kg_m3: 2160
+roof_mult: 0.45
+stefan_condition: true  # V = j/(ρ_s − C_s); false — V = j/ρ_s
+material:               # убрать блок — однородный материал
+  seed: 20261112
+  grain_contrast: 0.2
+  boundary_factor: 1.65
+  sheet_offset_mm: 25   # убрать строку — без пластин
+output_every_min: 5
+stages:
+  - duration_h: 0.25
+    flow_ml_min: 1.25
+  - duration_h: 0.25
+    flow_ml_min: 1.4
+  - duration_h: 0.25
+    flow_ml_min: 1.2
+  - duration_h: 0.25
+    flow_ml_min: 0.4

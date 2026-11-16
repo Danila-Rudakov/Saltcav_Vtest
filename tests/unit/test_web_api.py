@@ -86,6 +86,61 @@ def test_post_simulate_success(live_server: str) -> None:
         assert len(d["metrics"]["volume_cm3"]) == d["n_steps"]
 
 
+def test_post_simulate_full_contour_with_material(live_server: str) -> None:
+    """Режим full: замкнутый контур 0…2π, материал и условие Стефана доходят до модели."""
+    payload = {
+        "name": "test-web-full",
+        "setup": "full",
+        "model": "section",
+        "natural_convection": True,
+        "length_mm": 40.0,
+        "diameter_mm": 4.0,
+        "max_radius_mm": 20.0,
+        "n_cells": 8,
+        "n_theta": 12,
+        "output_every_min": 15.0,
+        "stefan_condition": True,
+        "material": {
+            "seed": 1,
+            "grain_contrast": 0.2,
+            "boundary_factor": 1.65,
+            "sheet_offset_mm": 25.0,
+        },
+        "stages": [{"duration_h": 0.25, "flow_ml_min": 1.0, "inlet_saturation": 0.0}],
+    }
+    req = urllib.request.Request(
+        f"{live_server}/api/simulate",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(req) as resp:
+        d = json.loads(resp.read().decode("utf-8"))["data"]
+    assert len(d["theta_rad"]) == 13
+    assert d["theta_rad"][-1] == pytest.approx(2 * 3.141592653589793, abs=1e-3)
+    assert d["halves"] == 1
+    assert d["config"]["material"]["seed"] == 1
+
+
+def test_post_simulate_material_requires_full(live_server: str) -> None:
+    """material при setup: channel — ошибка валидации (HTTP 400)."""
+    payload = {
+        "name": "bad-material",
+        "setup": "channel",
+        "length_mm": 40.0,
+        "diameter_mm": 4.0,
+        "material": {"seed": 1},
+        "stages": [{"duration_h": 0.1, "flow_ml_min": 1.0}],
+    }
+    req = urllib.request.Request(
+        f"{live_server}/api/simulate",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+    )
+    with pytest.raises(urllib.error.HTTPError) as exc_info:
+        urllib.request.urlopen(req)
+    assert exc_info.value.code == HTTPStatus.BAD_REQUEST
+
+
 def test_post_simulate_invalid_config(live_server: str) -> None:
     """POST /api/simulate с некорректными данными возвращает HTTP 400."""
     payload = {

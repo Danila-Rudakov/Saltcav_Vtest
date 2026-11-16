@@ -51,6 +51,8 @@ def get_default_config_dict() -> dict[str, Any]:
         "temperature_c": 20.0,
         "salt_density_kg_m3": 2160.0,
         "sh_mult": 1.0,
+        "stefan_condition": True,
+        "material": None,
         "roof_mult": 1.0,
         "wall_mult": 1.0,
         "n_cells": 80,

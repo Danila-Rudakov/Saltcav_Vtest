@@ -43,6 +43,7 @@
               <select id="presetSelect" class="form-select">
                 <option value="channel">Канал в целом блоке (channel.yaml)</option>
                 <option value="window">Полуканал у смотрового окна (window.yaml)</option>
+                <option value="full">Полный контур 0–360° (full)</option>
               </select>
             </div>
 
@@ -62,6 +63,62 @@
               <div class="form-group">
                 <label for="maxRadiusMm">Предел блока <i>R</i><sub>max</sub>, мм</label>
                 <input type="number" id="maxRadiusMm" name="max_radius_mm" step="any" min="1" max="1000" value="40">
+              </div>
+            </fieldset>
+
+            <!-- Расчётная сетка и модель -->
+            <fieldset class="form-section">
+              <legend>Сетка и модель</legend>
+              <div class="grid-2">
+                <div class="form-group">
+                  <label for="nCells">Ячеек по длине</label>
+                  <input type="number" id="nCells" name="n_cells" step="1" min="4" max="400" value="80">
+                </div>
+                <div class="form-group">
+                  <label for="nTheta">Секторов по углу <span id="nThetaHint" class="hint"></span></label>
+                  <input type="number" id="nTheta" name="n_theta" step="1" min="4" max="360" value="18">
+                </div>
+                <div class="form-group">
+                  <label for="shMult">Множитель массоотдачи <i>Sh</i></label>
+                  <input type="number" id="shMult" name="sh_mult" step="any" min="0.01" max="10" value="1">
+                </div>
+                <div class="form-group">
+                  <label for="outputEveryMin">Кадр каждые, мин</label>
+                  <input type="number" id="outputEveryMin" name="output_every_min" step="any" min="0.1" max="600" value="2">
+                </div>
+              </div>
+              <label class="checkbox-label">
+                <input type="checkbox" id="stefanCondition" checked>
+                Условие Стефана: <i>V</i> = <i>j</i>/(ρ<sub>s</sub> − <i>C</i><sub>s</sub>)
+              </label>
+            </fieldset>
+
+            <!-- Неоднородность материала (только полный контур) -->
+            <fieldset class="form-section" id="materialSection" hidden>
+              <legend>Материал (зёрна, пластины)</legend>
+              <label class="checkbox-label">
+                <input type="checkbox" id="materialEnabled">
+                Неоднородный материал
+              </label>
+              <div id="materialFields" hidden>
+                <div class="grid-2">
+                  <div class="form-group">
+                    <label for="grainSeed">Зерно генератора</label>
+                    <input type="number" id="grainSeed" step="1" min="0" value="20261112">
+                  </div>
+                  <div class="form-group">
+                    <label for="grainContrast">Контраст зёрен (0–1)</label>
+                    <input type="number" id="grainContrast" step="any" min="0" max="1" value="0.2">
+                  </div>
+                  <div class="form-group">
+                    <label for="boundaryFactor">Границы зёрен, ×</label>
+                    <input type="number" id="boundaryFactor" step="any" min="0.1" max="10" value="1.65">
+                  </div>
+                  <div class="form-group">
+                    <label for="sheetOffsetMm">Наклон пластин, мм на длину</label>
+                    <input type="number" id="sheetOffsetMm" step="any" value="25" placeholder="пусто — нет">
+                  </div>
+                </div>
               </div>
             </fieldset>
 

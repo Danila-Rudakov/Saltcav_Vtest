@@ -25,14 +25,33 @@ class LabStage(_Strict):
     ] = 0.0
 
 
+class LabMaterial(_Strict):
+    """Синтетическая неоднородность материала блока (только ``setup: full``)."""
+
+    seed: Annotated[int, Field(ge=0, description="Зерно генератора случайных зёрен")] = 20261112
+    grain_contrast: Annotated[
+        float, Field(ge=0, le=1, description="Контраст скорости растворения между зёрнами")
+    ] = 0.20
+    boundary_factor: Annotated[
+        float, Field(gt=0, description="Скорость растворения на границах зёрен относительно ядра")
+    ] = 1.65
+    sheet_offset_mm: Annotated[
+        float | None,
+        Field(description="Наклонные пластины: смещение слоёв на длину образца, мм; "
+                          "не задано — без пластин"),
+    ] = 25.0  # fmt: skip
+
+
 class LabConfig(_Strict):
     """Параметры установки. Всё, что можно поменять в опыте, задаётся здесь."""
 
     name: Annotated[str, Field(description="Название опыта")] = "lab-channel"
     setup: Annotated[
-        Literal["channel", "window"],
-        Field(description="channel — канал в целом блоке; window — полуканал у вертикального "
-                          "окна из оргстекла (половина каверны, видна через стекло)"),
+        Literal["channel", "window", "full"],
+        Field(description="channel — канал в целом блоке (считается половина, вторая зеркальная); "
+                          "window — полуканал у вертикального окна из оргстекла (половина "
+                          "каверны, видна через стекло); full — канал в целом блоке, весь "
+                          "контур 0…360° без допущения о симметрии"),
     ] = "channel"  # fmt: skip
     length_mm: Annotated[float, Field(gt=0, description="Длина канала (блока вдоль оси), мм")]
     diameter_mm: Annotated[float, Field(gt=0, description="Начальный диаметр канала, мм")]
@@ -76,6 +95,12 @@ class LabConfig(_Strict):
     natural_convection: Annotated[
         bool, Field(description="Учитывать свободную конвекцию и расслоение рассола")
     ] = True
+    stefan_condition: Annotated[
+        bool,
+        Field(description="Условие Стефана на границе соли: скорость отступания стенки "
+                          "V = j/(ρ_s − C_s) вместо V = j/ρ_s (быстрее в ρ_s/(ρ_s − C_s) ≈ 1,17 "
+                          "раза). Только модель сечения; выключено — прежняя скорость"),
+    ] = True  # fmt: skip
     sh_mult: Annotated[
         float, Field(gt=0, description="Калибровочный множитель массоотдачи (по опытам)")
     ] = 1.0
@@ -98,16 +123,32 @@ class LabConfig(_Strict):
         float, Field(gt=0, description="Теплопроводность соли блока, Вт/(м·К), для оценки "
                                        "охлаждения стенки теплотой растворения"),
     ] = 6.0  # fmt: skip
+    material: Annotated[
+        LabMaterial | None,
+        Field(description="Неоднородность материала (зёрна, пластины); не задано — однородный. "
+                          "Только setup: full"),
+    ] = None  # fmt: skip
     n_cells: Annotated[int, Field(ge=4, description="Число ячеек вдоль оси")] = 100
-    n_theta: Annotated[int, Field(ge=4, description="Секторов по углу на половину сечения")] = 18
+    n_theta: Annotated[
+        int,
+        Field(
+            ge=4,
+            description="Секторов по углу на половину сечения (full — на весь контур "
+            "0…360°, кратно 4)",
+        ),
+    ] = 18
     output_every_min: Annotated[float, Field(gt=0, description="Шаг записи, мин")] = 10.0
     cfl: Annotated[float, Field(gt=0, le=1, description="Запас по условию Куранта")] = 0.5
     stages: Annotated[list[LabStage], Field(min_length=1, description="Режим насоса")]
 
     @model_validator(mode="after")
     def _check_model(self) -> LabConfig:
-        if self.model == "axisym" and (self.setup == "window" or self.natural_convection):
+        if self.model == "axisym" and (self.setup != "channel" or self.natural_convection):
             raise ValueError("model: axisym — только setup: channel и natural_convection: false")
+        if self.material is not None and self.setup != "full":
+            raise ValueError("material — только для setup: full (поле задано на всём контуре 0…2π)")
+        if self.setup == "full" and self.n_theta % 4:
+            raise ValueError("setup: full — n_theta кратно 4 (узлы бока θ=90° и дна θ=180°)")
         if self.model == "axisym" and self.depth_m > 0:
             raise ValueError("model: axisym — только для установки на поверхности (depth_m: 0)")
         if self.temperature_at_depth > 100:

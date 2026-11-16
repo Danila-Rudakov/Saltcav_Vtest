@@ -13,6 +13,10 @@
 * ``setup: window`` — полуканал, прижатый к вертикальному окну из оргстекла (на эпоксидной
   смоле). Окно не растворяется и не пропускает соль; через половину идёт весь расход Q,
   окно добавляется к смоченному периметру (гидравлический диаметр меньше).
+* ``setup: full`` — канал в целом блоке, но считается весь контур θ ∈ [0, 2π] без
+  допущения о зеркальной симметрии: неоднородность материала и выступы стенки не обязаны
+  быть симметричны. Угловая производная периодическая (узел θ=2π совпадает с θ=0), дно —
+  узел θ=π, через сечение идёт весь расход Q.
 
 Сетка: узлы x_i (n_cells+1) × θ_j (n_theta+1). Ячейка (i, j) — клин между лучами θ_j и
 θ_{j+1} на отрезке [x_i, x_{i+1}]; в ней концентрация c_ij.
@@ -20,7 +24,10 @@
 Физика
 ------
 Поток соли со стенки клина: j = k·(C_s − c), стенка отступает по нормали со скоростью
-V = j/ρ_s. Массоотдача — смешанная конвекция (правило Черчилля):
+V = j/(ρ_s − C_s) (условие Стефана: растворившаяся соль замещается раствором, поэтому
+граница отступает быстрее, чем при V = j/ρ_s, в ρ_s/(ρ_s − C_s) ≈ 1,17 раза; отключается
+параметром ``stefan_condition: false`` — тогда модель без гравитации совпадает с простой).
+Массоотдача — смешанная конвекция (правило Черчилля):
 
     k = (k_вын³ + k_св³)^(1/3),
 
@@ -59,6 +66,7 @@ from saltcav.core.lab_config import LabConfig
 from saltcav.geometry.section import Geometry, geometry, wall_speed_factor
 from saltcav.leaching.axisym import MAX_DR_FRACTION, MAX_GROWTH_FRACTION, MIN_DT, SH_GRAETZ, G
 from saltcav.leaching.brine_column import stabilize
+from saltcav.leaching.material import build_multiplier
 
 FloatArray = NDArray[np.float64]
 
@@ -110,21 +118,32 @@ class Props:
 
 
 def mass_transfer(cfg: LabConfig, g: Geometry, c: FloatArray, x_mid: FloatArray, q: float,
-                  pr: Props) -> tuple[FloatArray, FloatArray, FloatArray, FloatArray]:  # fmt: skip
-    """k по ячейкам (nx, nθ), а также k_вын, Gr/Re² по x и k_св по ячейкам.
+                  pr: Props, flow_share: FloatArray | None = None
+                  ) -> tuple[FloatArray, FloatArray, FloatArray, FloatArray]:  # fmt: skip
+    """k по ячейкам (nx, nθ), а также k_вын по ячейкам, Gr/Re² по x и k_св по ячейкам.
+
+    ``flow_share`` — доля осевого расхода, проходящая через клин (nx, nθ), сумма по θ равна 1;
+    по умолчанию пропорциональна объёму клина (тогда скорость в клине равна средней по сечению
+    и k_вын одинаков по θ, как в модели без угловой неоднородности потока).
 
     k — итоговый коэффициент с учётом реакции на поверхности (последовательные стадии):
     1/k = 1/k_массоотдачи + 1/k_реакции.
     """
     dh = 4.0 * g.area / g.perim
-    u = q / g.area
-    gz = u * dh * dh / (pr.diff * x_mid)  # вязкость в Gz сокращается
-    k_f = np.maximum(SH_GRAETZ, 1.077 * gz ** (1.0 / 3.0)) * cfg.sh_mult * pr.diff / dh
+    vol_share = g.vol / np.maximum(g.vol.sum(axis=1, keepdims=True), 1e-30)
+    area_sector = np.maximum(vol_share * g.area[:, None], 1e-15)  # площадь сечения клина, м²
+    if flow_share is None:
+        flow_share = vol_share
+    u_local = q * flow_share / area_sector  # локальная скорость в клине, м/с
+    gz = u_local * dh[:, None] ** 2 / (pr.diff * x_mid[:, None])  # вязкость в Gz сокращается
+    k_f = (np.maximum(SH_GRAETZ, 1.077 * gz ** (1.0 / 3.0)) * cfg.sh_mult * pr.diff
+           / dh[:, None])  # fmt: skip
     rho = pr.rho(np.clip(c, 0.0, pr.c_sat))
     drel = np.maximum(pr.rho_sat - rho, 0.0) / rho
     vol_i = g.vol.sum(axis=1)
     drel_mean = np.sum(g.vol * drel, axis=1) / vol_i
-    ri = G * drel_mean * dh / (u * u)  # Gr/Re²
+    u_bulk = q / g.area  # средняя по сечению скорость, м/с
+    ri = G * drel_mean * dh / (u_bulk * u_bulk)  # Gr/Re²
     if not cfg.natural_convection:
         k_n = np.zeros_like(c)
     else:
@@ -136,7 +155,7 @@ def mass_transfer(cfg: LabConfig, g: Geometry, c: FloatArray, x_mid: FloatArray,
         up = np.clip(g.nz, 0.0, 1.0)
         down = np.clip(-g.nz, 0.0, 1.0)
         k_n = (1.0 - up - down) * k_wall + up * k_roof  # к дну k_св → 0
-    k = np.cbrt(k_f[:, None] ** 3 + k_n**3)
+    k = np.cbrt(k_f**3 + k_n**3)
     if cfg.k_surface_m_s is not None:
         k = 1.0 / (1.0 / k + 1.0 / cfg.k_surface_m_s)
     return k, k_f, ri, k_n
@@ -159,17 +178,42 @@ def wall_cooling(
     return float(np.max(q * r_cell * np.log(big / r_cell) / conductivity))
 
 
+def hydraulic_flow_distribution(
+    g: Geometry, r: FloatArray, dx: float, theta: FloatArray, strength: float = 0.0
+) -> tuple[FloatArray, FloatArray, FloatArray]:
+    """Распределение осевого потока по угловым клиньям: пропорционально объёму клина.
+
+    Точка расширения для моделей обхода выступов потолка: феноменологическая «гидравлическая
+    сеть» с заранее заданными зонами обхода убрана (она предписывала положение «рогов» сечения
+    и не была обоснована физикой). Параметр ``strength`` сохранён для совместимости вызовов и
+    ни на что не влияет; ``r``, ``dx``, ``theta`` оставлены для будущих замыканий.
+
+    Возвращает доли потока по клиньям (nx, nθ), индекс блокировки потолка (нули) и высоту
+    выступов (нули), чтобы не менять сигнатуру для остального кода.
+    """
+    share = g.vol / np.maximum(g.vol.sum(axis=1, keepdims=True), 1e-30)
+    return share, np.zeros(g.vol.shape[0]), np.zeros_like(g.vol)
+
+
 def wall_rate(cfg: LabConfig, g: Geometry, r: FloatArray, c: FloatArray, x_mid: FloatArray,
-              q: float, pr: Props) -> tuple[FloatArray, FloatArray, FloatArray, FloatArray,
-                                            FloatArray]:  # fmt: skip
+              q: float, pr: Props, flow_share: FloatArray | None = None
+              ) -> tuple[FloatArray, FloatArray, FloatArray, FloatArray, FloatArray]:  # fmt: skip
     """Скорость роста радиуса в узлах ∂r/∂t, м/с, и (k, k_вын, Gr/Re², k_св)."""
-    k, k_f, ri, k_n = mass_transfer(cfg, g, c, x_mid, q, pr)
+    k, k_f, ri, k_n = mass_transfer(cfg, g, c, x_mid, q, pr, flow_share)
     flux = k * np.maximum(pr.c_sat - c, 0.0)  # кг/(м²·с), по ячейкам
-    fp = np.pad(flux, 1, mode="edge")
-    v_node = 0.25 * (fp[:-1, :-1] + fp[1:, :-1] + fp[:-1, 1:] + fp[1:, 1:]) / cfg.salt_density_kg_m3
+    if cfg.setup == "full":
+        # θ периодичен: ячейки по краям замыкаются друг на друга (θ=2π ≡ 0), по x — край
+        ftheta = np.concatenate([flux[:, -1:], flux, flux[:, :1]], axis=1)
+        fp = np.pad(ftheta, ((1, 1), (0, 0)), mode="edge")
+    else:
+        fp = np.pad(flux, 1, mode="edge")
+    v_node = 0.25 * (fp[:-1, :-1] + fp[1:, :-1] + fp[:-1, 1:] + fp[1:, 1:])
+    # Условие Стефана: нормальная скорость границы V = j/(ρ_s − C_s), а не j/ρ_s
+    v_node = v_node / (cfg.salt_density_kg_m3 - (pr.c_sat if cfg.stefan_condition else 0.0))
     dx = float(x_mid[1] - x_mid[0]) if x_mid.size > 1 else 1.0
-    dth = np.pi / (r.shape[1] - 1)
-    return v_node * wall_speed_factor(r, dx, dth), k, k_f, ri, k_n
+    dtheta_total = 2.0 * np.pi if cfg.setup == "full" else np.pi
+    dth = dtheta_total / (r.shape[1] - 1)
+    return v_node * wall_speed_factor(r, dx, dth, periodic=cfg.setup == "full"), k, k_f, ri, k_n
 
 
 @dataclass
@@ -180,7 +224,7 @@ class SectionResult:
     x: FloatArray  # узлы по x, м
     theta: FloatArray  # узлы по θ, рад
     c_sat: float
-    halves: int  # 2 — канал (половина зеркальная), 1 — окно
+    halves: int  # 2 — канал (половина зеркальная), 1 — окно или полный контур (full)
     times: list[float] = field(default_factory=list)
     radius: list[FloatArray] = field(default_factory=list)  # (nx+1, nθ+1), м
     concentration: list[FloatArray] = field(default_factory=list)  # (nx, nθ)
@@ -210,6 +254,11 @@ class SectionResult:
     wall_cooling: list[float] = field(default_factory=list)  # К, оценка сверху
     damkohler: list[float] = field(default_factory=list)  # max k_массоотдачи/k_реакции
     re_mid: list[float] = field(default_factory=list)  # Re в середине канала
+    # диагностика распределения потока по углу, середина канала (подробнее — в record())
+    flow_share_mid: list[FloatArray] = field(default_factory=list)  # доли расхода по клиньям
+    roof_blockage_mid: list[float] = field(default_factory=list)  # индекс блокировки потолка
+    roof_flow_share_mid: list[float] = field(default_factory=list)  # доля потока в зоне ±22°
+    side_flow_share_mid: list[float] = field(default_factory=list)  # доля в полосах около ±38°
     n_steps: int = 0
     stopped: str = ""
 
@@ -219,6 +268,16 @@ class SectionResult:
 
 
 PART_NAMES = ("потолок", "боковые стенки", "дно")
+
+# зоны диагностики распределения потока по углу (от вертикали вверх), градусы
+ROOF_CORE_DEG = 22.0  # центральная верхняя зона ±22°
+FLANK_DEG = 38.0  # верхние боковые полосы около 38° и 322°
+FLANK_HALF_WIDTH_DEG = 21.0  # полуширина полосы
+
+
+def _angle_dist(th: FloatArray, center: float) -> FloatArray:
+    """Угловое расстояние до ``center`` с учётом периода 2π, рад."""
+    return np.asarray(np.abs((th - center + np.pi) % (2.0 * np.pi) - np.pi), dtype=np.float64)
 
 
 def deposit_below(base: FloatArray, dm: FloatArray, zc: FloatArray, v: FloatArray,
@@ -234,6 +293,30 @@ def deposit_below(base: FloatArray, dm: FloatArray, zc: FloatArray, v: FloatArra
     w = below * v[:, None, :]
     w = w / w.sum(axis=2, keepdims=True)
     return overflow_up(base + np.einsum("ij,ijk->ik", dm, w), zc, c_sat * v)
+
+
+def pool_equal_height(
+    c: FloatArray, v: FloatArray, zc: FloatArray, tol: float = 1e-9
+) -> FloatArray:
+    """Выравнивает концентрацию клиньев одной высоты (в пределах ``tol`` от размаха высот).
+
+    Клинья на одной высоте не разделены плотностной устойчивостью и перемешиваются по
+    горизонтали; без этого порядок обработки равных высот (по индексу) вносил бы в полный
+    контур ложную несимметрию. Масса соли сохраняется (среднее по объёму).
+    """
+    out = c.copy()
+    span = float(np.ptp(zc)) or 1.0
+    order = np.argsort(-zc)
+    start = 0
+    while start < order.size:
+        end = start + 1
+        while end < order.size and zc[order[start]] - zc[order[end]] <= tol * span:
+            end += 1
+        if end - start > 1:
+            idx = order[start:end]
+            out[idx] = float(np.dot(v[idx], c[idx]) / v[idx].sum())
+        start = end
+    return out
 
 
 def overflow_up(mass: FloatArray, zc: FloatArray, cap: FloatArray) -> FloatArray:
@@ -296,20 +379,32 @@ def conditions(cfg: LabConfig) -> tuple[float, float]:
 
 
 def simulate_section(
-    cfg: LabConfig, progress: Callable[[float, str], None] | None = None
+    cfg: LabConfig,
+    progress: Callable[[float, str], None] | None = None,
+    flow_coupling_strength: float = 0.0,
+    material_multiplier: Callable[[FloatArray], FloatArray] | None = None,
 ) -> SectionResult:
     """Прогнать режим насоса в модели сечения.
 
     ``progress(доля, текст)`` вызывается в моменты записи (для окна: полоса хода и отмена).
+
+    ``material_multiplier(r)`` — необязательный множитель скорости растворения в узлах
+    (nx+1, nθ+1) как функция текущей формы стенки r (м): неоднородность материала (зёрна,
+    слои). Не задан — берётся из ``cfg.material`` (см. :mod:`saltcav.leaching.material`),
+    а если и там не задано, материал однороден. ``flow_coupling_strength`` передаётся в
+    :func:`hydraulic_flow_distribution` и сейчас ни на что не влияет.
     """
     pr = Props.at(*conditions(cfg))
+    if material_multiplier is None:
+        material_multiplier = build_multiplier(cfg)
     nx, nth = cfg.n_cells, cfg.n_theta
     window = cfg.setup == "window"
-    halves = 1 if window else 2
+    full = cfg.setup == "full"  # полный контур 0…2π, без допущения о симметрии
+    halves = 1 if window or full else 2
     x = np.linspace(0.0, cfg.length_mm * 1e-3, nx + 1)
     dx = float(x[1] - x[0])
     x_mid = 0.5 * (x[:-1] + x[1:])
-    theta = np.linspace(0.0, np.pi, nth + 1)
+    theta = np.linspace(0.0, 2.0 * np.pi if full else np.pi, nth + 1)
     dth = float(theta[1] - theta[0])
     r = np.full((nx + 1, nth + 1), 0.5e-3 * cfg.diameter_mm)
     c = np.zeros((nx, nth))
@@ -330,28 +425,47 @@ def simulate_section(
 
     def record(t: float, q_h: float) -> None:
         g = geometry(r, dx, theta, window)
-        rate, k, k_f, ri, k_n = wall_rate(cfg, g, r, c, x_mid, q_h, pr)
+        flow_share, roof_blockage, _ = hydraulic_flow_distribution(
+            g, r, dx, theta, flow_coupling_strength
+        )
+        rate, k, k_f, ri, k_n = wall_rate(cfg, g, r, c, x_mid, q_h, pr, flow_share)
+        if material_multiplier is not None:
+            rate = rate * np.asarray(material_multiplier(r), dtype=np.float64)
         q = halves * q_h
         flux = k * np.maximum(pr.c_sat - c, 0.0)
         r_cell = 0.25 * (r[:-1, :-1] + r[1:, :-1] + r[:-1, 1:] + r[1:, 1:])
         r_block = None if cfg.max_radius_mm is None else 1e-3 * cfg.max_radius_mm
         res.wall_cooling.append(wall_cooling(flux, r_cell, r_block, cfg.salt_conductivity_w_mk))
-        k_mt = np.cbrt(k_f[:, None] ** 3 + k_n**3)
+        k_mt = np.cbrt(k_f**3 + k_n**3)
         res.damkohler.append(
             float(np.max(k_mt) / cfg.k_surface_m_s) if cfg.k_surface_m_s is not None else 0.0
         )
         c_bar = float(np.sum(g.vol[mid] * c[mid]) / g.vol[mid].sum())
         dh = 4.0 * g.area[mid] / g.perim[mid]
         res.re_mid.append(float(q_h / g.area[mid] * dh / pr.nu(c_bar)))
+        res.flow_share_mid.append(flow_share[mid].copy())
+        res.roof_blockage_mid.append(float(roof_blockage[mid]))
+        # доля потока в центральной верхней зоне и в верхних боковых полосах (диагностика)
+        thm = 0.5 * (theta[:-1] + theta[1:])
+        roof_core = np.cos(thm) > np.cos(np.deg2rad(ROOF_CORE_DEG))
+        flank = np.minimum(_angle_dist(thm, np.deg2rad(FLANK_DEG)),
+                           _angle_dist(thm, np.deg2rad(360.0 - FLANK_DEG))) < np.deg2rad(
+                               FLANK_HALF_WIDTH_DEG)  # fmt: skip
+        res.roof_flow_share_mid.append(float(flow_share[mid, roof_core].sum()))
+        res.side_flow_share_mid.append(float(flow_share[mid, flank].sum()))
         res.outflow.append(halves * acc["q_out"])
         res.water_in.append(halves * acc["water_in"])
         res.water_out.append(halves * acc["water_out"])
         res.water_in_channel.append(
             halves * float(np.sum(g.vol * (pr.rho(np.clip(c, 0, pr.c_sat)) - c)))
         )
-        res.v_mid.append(rate[mid, [0, nth // 2, nth]].copy())
+        # узел бока и дна: при половинном сечении бок — θ=90° (середина), дно — последний узел;
+        # при полном контуре бок — θ=90° (четверть), дно — θ=180° (середина)
+        side_idx = nth // 4 if full else nth // 2
+        floor_idx = nth // 2 if full else -1
+        res.v_mid.append(rate[mid, [0, side_idx, floor_idx]].copy())
         res.c_roof_mid.append(float(c[mid, 0] / pr.c_sat))
-        res.c_floor_mid.append(float(c[mid, -1] / pr.c_sat))
+        res.c_floor_mid.append(float(c[mid, floor_idx] / pr.c_sat))
         res.by_mechanism.append(halves * mech.copy())
         res.times.append(t)
         res.radius.append(r.copy())
@@ -366,9 +480,9 @@ def simulate_section(
         res.ri_max.append(float(np.max(ri)))
         res.ri_mid.append(float(ri[mid]))
         res.stratified.append(float(np.mean(ri >= cfg.ri_crit)) if cfg.natural_convection else 0.0)
-        res.k_forced_mid.append(float(k_f[mid]))
+        res.k_forced_mid.append(float(np.mean(k_f[mid])))
         res.k_roof_mid.append(float(k_n[mid, 0]))
-        res.k_wall_mid.append(float(k_n[mid, nth // 2]))
+        res.k_wall_mid.append(float(k_n[mid, side_idx]))
         res.by_part.append(halves * parts.copy())
 
     t_total = 3600.0 * sum(s.duration_h for s in cfg.stages)
@@ -380,7 +494,10 @@ def simulate_section(
         t_end += 3600.0 * stage.duration_h
         while t < t_end - 1e-9:
             g = geometry(r, dx, theta, window)
-            rate, _, k_f, ri, k_n = wall_rate(cfg, g, r, c, x_mid, q, pr)
+            flow_share, _, _ = hydraulic_flow_distribution(g, r, dx, theta, flow_coupling_strength)
+            rate, _, k_f, ri, k_n = wall_rate(cfg, g, r, c, x_mid, q, pr, flow_share)
+            if material_multiplier is not None:
+                rate = rate * np.asarray(material_multiplier(r), dtype=np.float64)
             dt = min(t_end - t, next_out - t)
             v_max = float(np.max(rate))
             if v_max > 0:
@@ -410,7 +527,7 @@ def simulate_section(
             # каждый на своей высоте, поток делится по их объёмам. Расход между ячейками —
             # из баланса массы раствора: каверна растёт на ΔV, но растворённая соль сама
             # добавляет объём раствору (плотность рассола из таблицы CRC это учитывает)
-            a = v_new / v_new.sum(axis=1, keepdims=True)
+            a, _, _ = hydraulic_flow_distribution(g_new, r_new, dx, theta, flow_coupling_strength)
             rho_in = float(pr.rho(c_in))
             rho_old = np.sum(v_old * pr.rho(c), axis=1) / v_old.sum(axis=1)
             mass_in = dm.sum(axis=1) / dt
@@ -430,7 +547,7 @@ def simulate_section(
             for p, mask in enumerate(_parts(g.nz)):
                 parts[p] += float(dm[mask].sum())
             # доля потока, которую дала бы одна вынужденная конвекция
-            forced = float(np.sum(dm * k_f[:, None] / np.cbrt(k_f[:, None] ** 3 + k_n**3)))
+            forced = float(np.sum(dm * k_f / np.cbrt(k_f**3 + k_n**3)))
             mech += (forced, float(dm.sum()) - forced)
             # сечение: перемешивание (вынужденный режим) или расслоение (свободная конвекция)
             if strat.any():  # слои соседних ячеек разного объёма — без пересыщения
@@ -439,7 +556,8 @@ def simulate_section(
             for i in range(nx):
                 if strat[i]:
                     order = np.argsort(-g_new.zc[i])  # сверху вниз
-                    c_new[i, order] = stabilize(c_new[i, order], v_new[i, order])
+                    c_eq = pool_equal_height(c_new[i], v_new[i], g_new.zc[i])
+                    c_new[i, order] = stabilize(c_eq[order], v_new[i, order])
                 else:
                     c_new[i] = np.dot(v_new[i], c_new[i]) / v_new[i].sum()
             r, c = r_new, c_new
