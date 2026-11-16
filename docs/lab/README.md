@@ -84,3 +84,21 @@ hyd = hydraulics(res)                # давление насоса и в ка�
 | `n_cells`, `n_theta` | ячеек по длине и секторов на половину сечения |
 | `output_every_min` | шаг записи результатов |
 | `stages` | режим насоса: `duration_h`, `flow_ml_min`, `inlet_saturation` (0 — дистиллят, 1 — насыщенный рассол) |
+
+## Сборка .exe для Windows
+
+Лабораторный веб-интерфейс можно собрать в один файл `saltcav_lab.exe`: он запускает сервер на
+свободном порту и открывает интерфейс в браузере (окно консоли не закрывать — это и есть сервер).
+Нужен Python 3.11+ для Windows (python.org, с галкой «Add to PATH»); `.exe` собирается только на
+Windows. Сборка включает numpy, scipy, pydantic и yaml (без Qt, Gmsh, MKL), около 60 МБ.
+
+```
+packaging\build_lab_exe.bat          # двойной щелчок или из cmd / PowerShell
+cmd.exe //c packaging\\build_lab_exe.bat   # то же из Git Bash
+```
+
+Результат — `dist\saltcav_lab.exe`. Параметры запуска: номер порта (`saltcav_lab.exe 9000`) и
+`--no-browser`. Если антивирус ругается на одиночный файл, соберите папкой:
+`set SALTCAV_ONEDIR=1` перед запуском скрипта (получится `dist\saltcav_lab\saltcav_lab.exe`).
+Спецификация — `packaging/saltcav_lab.spec`, точка входа — `packaging/saltcav_lab_web.py`;
+полное приложение (окно, 3D, механика) собирается отдельно через `packaging/saltcav.spec`.
